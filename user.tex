@@ -1,0 +1,1104 @@
+% The user manual.
+
+\documentclass[10pt]{article}
+%\usepackage{lingmacros}
+%\usepackage{tree-dvips}
+%\usepackage{calrsfs}
+
+\usepackage{relsize}
+
+% In one place, I want to use \verb within \footnote, and that isn't
+% normally possible due to the way \footnote works. My understanding
+% is that \footnote tokenizes the argument in such a way that it
+% becomes impossible to make sense of the \verb.
+\usepackage{fancyvrb}
+\VerbatimFootnotes
+
+% This allows me to use \textquotesingle to get ' instead of a tilty quote
+%\usepackage[T1]{fontenc}
+\usepackage{textcomp}
+
+
+% I think 12 cm is the default, or close to it.
+\setlength{\textwidth}{13cm}
+
+% This is to get '.' in \tt font. You need this long-winded thing to
+% get a single quote. Even \verb='.'= doesn't work.
+\newcommand{\dotpath}{{\tt\textquotesingle.\textquotesingle}}
+
+% To single-quote things more generally.
+\newcommand{\squote}[1]{{\tt\textquotesingle#1\textquotesingle}}
+
+% Arguments to commands should appear as <some_thing>, in italics and
+% using ``angles'' instead of greater-than/less-than. Also, don't
+% forget that one way to get the underscore character is '\_',
+% although it seems a bit too short to me.
+\newcommand{\itarg}[1]{\textit{$\langle$#1$\rangle$}}
+
+\begin{document}
+
+{
+\center
+{\textsc{\LARGE igit}}
+
+Git's Even Stupider Cousin\footnote{See the git manpage, which describes
+  git as ``the stupid content tracker.''}
+
+}
+
+\section {Introduction}
+
+Igit is a file repository, originally inspired by git, but with a much
+different design. Under most other version control systems, the
+location of the repository and the files being managed are tightly
+linked. Igit breaks that link. A repository in one location can be
+used to manage files anywhere else on the file system, and 
+there can be multiple repositories, with more than one repository in a single 
+directory. In addition, igit allows for a richer and more detailed record of 
+the parts of a project, how they fit together and their historical 
+relationships.
+
+\section{Installation and Top-level Organization}
+
+Igit is written in Java, so the first thing to do is install Java, if
+you haven't already.
+
+A {\it repository} is a record of history for a collection of
+files. It includes copies of all the files being tracked, information
+about the history of changes, how these files fit into a directory
+structure, {\it etc.} Each repository  is stored in a directory, with
+the default name {\tt .igit}.
+
+Igit can work with multiple repositories; to keep track of them there
+is a single directory at a fixed location, called {\tt .igithome} by
+default. The location for  {\tt .igithome} must be specified. Under 
+Windows, use the Control Panel:
+\vskip 0.15cm
+System Properties $\rightarrow$ Environment Variables $\rightarrow$
+System variables
+\vskip 0.15cm
+\noindent For Linux, set the environment variable in {\tt .bashrc}
+(for example). In either case, set the \verb=igit_home= variable to
+the path to the {\tt .igithome} directory.
+So, the directory isn't required to be called {\tt .igithome}; name it
+whatever you want in the environment variable.
+
+Once the environment variable has been set up, call the {\tt init}
+command to create the {\tt .igithome} directory. There can be only one ``active''
+repository; choose it with the {\tt use-repo} command. There are also
+various commands to add, delete and rename the repositories known to
+{\tt .igithome}.
+
+The {\tt .igithome} directory contains three files: {\tt ignore}, 
+{\tt active} and {\tt list}. The {\tt list} file is a list of paths to
+all known repositories ({\it i.e.,} the {\tt .igit} directories), one
+path per line, prefixed by a symbolic name for the repository. The
+{\tt active} file is a single line on which one of the paths
+from {\tt list} appears; this is the currently active repository, and
+nearly all commands implicitly work on the active repository.
+
+The {\tt ignore} file is used to specify file patterns which are to be
+ignored by certain commands. Each line of {\tt ignore} is a pattern,
+and only three patterns are allowed: 
+\pagebreak
+\begin{itemize}
+\item A complete literal file name, like {\tt settings.txt}.
+\item Something of the form {\tt *X}, where {\tt X} might be {\tt .exe}
+or {\tt .bak}, {\it etc.} By default, {\tt ignore} includes \verb=*~=
+since tilde is used for emacs backup files.
+\item Something of the form {\tt X*}. The most common thing would be
+  {\tt .*}, which appears by default so that you don't accidentally
+  try to add {\tt .igit} to itself, or any number of other
+  {\tt .something} files that appear in Linux. 
+\end{itemize}
+If a directory matches the pattern, then the entire directory will be ignored
+(e.g., {\tt .igit} due to the {\tt .*} pattern). There is no facility
+to edit the {\tt ignore} file other than opening it with a standard text editor.
+
+There's no behind-the-scenes magic to any of these files. It shouldn't be
+necessary, but if there's some kind of glitch and the {\tt list} or
+{\tt active} file becomes corrupted, or you want to do something
+unexpected, then go ahead and edit the files manually.
+
+\section{Repositories and Catenas}
+
+The purpose of a repository is to track a collection of files and how
+they've been changed. A {\it catena} (Latin for ``chain'') is the series
+of historical modifications made to a set of files, together with
+their directory structure. It's similar to ``module,'' ``package,'' or
+simply ``the project,'' but with history. It can also be thought of as
+a mini-repository with a repository. 
+
+Using the word ``catena'' helps to minimize confusion. Even
+``file'' can be confusing since it can mean a particular sequence of
+bytes in storage, or it could be the history of all versions of a file
+(however ``version'' is defined!), or it could be the path where you
+expect to find a some version of a file. To minimize confusion about
+these meanings for ``file,'' use {\it path-instance} to mean a file
+found at a particular path, and {\it byte-instance} to mean a 
+particular sequence of bytes forming a file.
+
+As a catena develops over time, a series of changes is made to the files in
+the catena, and a snapshot of these changes is called a {\it cut}, as
+in ``cut a new version.'' Each cut is a set of files (in both the path
+sense and the byte sense), and a catena is a series of cuts. Each
+catena has a {\it head} that points to the currently active cut.
+
+Once a cut has been finalized, it cannot be changed. While a cut is
+open to changes, it's called a {\it proto-cut}. The {\tt cut} command
+finalizes the contents of a proto-cut so that it can no longer be changed;
+the proto-cut becomes a {\it fixed cut}, a new proto-cut is created
+and head moves to this proto-cut.\footnote{A proto-cut is similar
+  to git's ``staging area,'' and the {\tt cut} command is
+  similar to {\tt git commit}.} If the history of a catena has never branched, then that catena will
+have a single proto-cut, and all other cuts will be fixed; each branch
+(and sub-branch) has at most one proto-cut. 
+
+The system allows for sub-catenas, and sub-catenas may have their own 
+independent history, so a sub-catena is a catena in its own right.
+Allowing for sub-catenas {\it can} lead to a complicated repository
+structure, but it's perfectly OK to use the system with only a single
+catena, and some of the complexities described below don't arise.
+
+Every catena has a symbolic name, and every repository starts with a
+{\tt main} catena. If you prefer, then you can ignore, delete or rename the
+{\tt main} catena. 
+
+\section{Catenas and Sub-catenas}
+
+The catena/sub-catena structure is unrelated to the directory structure 
+of the files being tracked (unless you want it to be). A catena can
+contain files from multiple directories, and a file, or entire
+directories, can appear in multiple catenas. 
+
+There are two ways in which a catena can rely on (or {\it use}) a
+sub-catena. These two ways are {\it depends on} and {\it contains}. If
+catena $A$ depends on catena $B$, then $B$ is fixed and can't be
+modified; if $A$ contains $B$, then $B$ {\it can} be modified.
+
+The description above may be confusing for semantic reasons. Every
+catena consists of a series of cuts, and the statement that ``$A$ is a
+sub-catena of $B$'' is more correctly stated as ``a particular cut
+of $B$ relies on a particular cut of $A$,'' or ``this $B$-cut uses that
+$A$-cut'' That's too verbose for continuous use, and the important
+point is that the sub-catena relationship is defined on a per-cut
+basis. There's no such thing as a catena that is always and entirely a
+sub-catena of another catena. When the cut-based aspect of the
+sub-catena relationship is important, this document may refer to
+``sub-cuts'' instead of ``sub-catenas.'' 
+
+Reasons one might use sub-catenas include:
+\begin{itemize}
+\item A Java program might rely on some Python source code, where the
+  Python and Java develop somewhat, but not entirely, independently.
+\item The files are in widely dispersed directories. In the
+  Java/Python example, each set of source files might be buried at
+  some depth in different places.
+\item If the code is broken into different modules, like namespaces in
+  C\# or packages in Java, then it might be helpful to distinguish
+  the modules. 
+\end{itemize}
+
+The choice between contains or depends is fluid, and can
+be changed at any time. Changing between the two may make it easier to
+navigate history and narrow down the places where a particular change
+was made. If $A$ depends on $B$ over a particular range of cuts, then
+it is not possible for $B$ to have been changed in any of those cuts;
+changes to $B$ are only possible when $A$ contains $B$. 
+
+\subsection*{Examples}
+
+Suppose that catena {\tt main} {\it depends on} catenas $A$ and $B$.
+This means that the particular cuts of $A$ and $B$ are fixed for
+{\tt main}; they may not be proto-cuts. Thus, {\tt main} uses a particular
+version ({\it i.e.}, a cut) of these two sub-catenas, and those
+versions won't change as {\tt main} is modified. For instance, $A$ and
+$B$ may be shared libraries that you want to be careful about changing because
+other people rely on them. As long as you're working on {\tt main},
+you can't edit any of the files in $A$ or $B$. One quirk to bear in
+mind is that a file may belong to $A$, $B$ and {\tt main} ({\it i.e.},
+the file maps to the same location on the disk). 
+In a case like this, that file is not editable, even though it is part of
+{\tt main} (and the file must be identical, in the byte sense, in
+every case it appears).
+
+Now suppose that {\tt main} {\it contains} $A$ and $B$. Then the files
+in $A$ and $B$ can be edited when working on main. Executing the {\tt
+  cut} command on {\tt main} leads to a new fixed cut for {\tt main},
+and also new cuts for $A$ and $B$ (if files in $A$ and $B$ were 
+modified). Again, if a file appears in multiple catenas, 
+under the same path, then the same byte-instance must be used at every location.
+
+Because depends-on sub-catenas are fixed, they are easy to understand
+and manage, but the contains relationship raises some messy
+issues. Suppose that {\tt main} contains $A$, with the expectation that
+development of {\tt main} and $A$ will move forward together. As long
+as {\tt main} is the only catena that contains $A$, this is easy to understand.
+
+Now suppose that {\tt main1} and {\tt main2} both contain $A$. If 
+{\tt main1} and {\tt main2} contain cuts from different branches of $A$,
+then there is no conflict.\footnote{Remember: if {\tt main} contains
+$A$, then it must contain a proto-cut of $A$, not a fixed cut, and
+every branch has at most one proto-cut. So, if the cuts of $A$ are
+different, then they must be from different branches of $A$.}
+Development for each of {\tt main1} $+A$ and {\tt main2} $+A$ proceeds
+in parallel. Eventually, the two branches of $A$ may be merged, but
+until that happens, the two versions of $A$ are independent.
+
+It is {\it forbidden} for a cut of one catena to be contained by more
+than one other cut. In the example above, if {\tt main1} and {\tt main2}
+were allowed to contain the same cut of $A$, then all sorts of
+mysterious ways to shoot yourself in the foot would arise. Whenever a
+cut is contained by another catena as a sub-cut, then the super-cut
+must be unique, and the only way to modify the sub-cut is through it's 
+unique super-cut. The sub-cut may not be modified directly (except to
+add and delete items), as a catena in its own right. 
+
+In summary, bear in mind the following, where $A$, $B$ and $C$ are
+different catenas.
+\begin{itemize}
+\item The uses hierachy can go to arbitrary depth, but circular
+  references are not allowed. That is, ``$A$ uses $B$ uses $A$'' is
+  forbidden. 
+\item Parallel use is permitted. Something like ``$A$ uses ($B$ and $C$),''
+  together with ``$B$ uses $C$,'' is acceptable.
+\item ``$A$ depends on $B$ contains $C$'' is fine. ``$A$ depends on $B$''
+  implies that the cut of $B$ is fixed, so the cut of $C$ must be
+  fixed too. That ``$B$ contains $C$,'' instead of ``$B$ depends on $C$,''
+  must be a relic of how the particular cut of $B$ was created.
+\item ``$A$ contains ($B_1$ and $B_2$)'' is permitted, provided that $B_1$
+  and $B_2$ are different cuts. This is an odd thing to do, and it's
+  possible only when any path-instances common to $B_1$ and $B_2$ are
+  identical byte-instances, but it might make sense as a way to test
+  merging $B_1$ and $B_2$. 
+\end{itemize}
+
+\section{Paths}\label{section-paths}
+
+It can be helpful to think of the contents of a repository as a
+parallel file system, with its own directory structure. The question is
+how the locations of the files in a repository map to the ordinary file
+system.
+
+Every repository has a {\it base path}. The base path may be an
+absolute path ({\it i.e.}, a path starting at root) or it 
+may be \dotpath. If the base path is an absolute path, then
+every file tracked by the repository must appear below the base path
+directory. If the base path is \dotpath, then every file tracked by the
+repository must be at or below the directory that contains the repository
+({\it i.e.}, the {\tt .igit} directory).
+
+Every cut of a catena has a {\it home path}. The home path is
+always expressed relative to the base path, and may be equal to
+\dotpath. The home path may never be an absolute path. Every file held
+by a cut must be found in {\tt base/home}. 
+There may be an arbitrary directory structure below {\tt base/home}
+for the files held by the cut, and this portion of the path to a file
+is called the {\it cut path}. For example, 
+\begin{verbatim}
+base_path = /from/root/to/work/area
+home_path = some/project
+cut_path = the/actual/code/item.c
+\end{verbatim}
+means that {\tt item.c} will be found on the disk at
+\begin{verbatim}
+/from/root/to/work/area/some/project/the/actual/code/item.c
+\end{verbatim} 
+
+The base and home paths can be changed at any time. By
+changing the base path, the entire work-area for the repository changes;
+alternatively, if the base path is \dotpath, then moving the
+repository to a different location changes the work-area. Another
+reason to change the base path is because a repository was copied to a
+different machine. 
+
+{\textsc{\large important}}: When accessed through the command-line,
+you may use {\tt\textquotesingle/\textquotesingle} or
+{\tt\textquotesingle{\texttt{\char`\\}}\textquotesingle}; however,
+internally, igit uses {\tt\textquotesingle/\textquotesingle} exclusively.
+It should never be necessary, but if you edit any of the {\tt .igit}
+database files directly, then be careful to use
+{\tt\textquotesingle/\textquotesingle} and never use
+{\tt\textquotesingle{\texttt{\char`\\}}\textquotesingle}. And you had
+better understand {\it exactly} what you are doing!
+
+\section{Checking In and Out}
+
+Remember, a distinction is made between checking in files and cutting
+a new version. Here is the normal sequence of events. 
+\begin{enumerate}
+\item You are working with a particular proto-cut on a catena.
+\item You check out various files and edit them.
+\item You check in files that belong to the catena. You can do this
+  multiple times, and each time you do so, the proto-cut's current
+  version of the file is updated.
+\item You cut a new version. The last checkin for each file is used for
+    this new cut. The cut is now fixed for all time and the head advances
+    to a new proto-cut. This new proto-cut starts off looking identical to 
+    the cut you just made.
+\end{enumerate}
+In theory, there's no reason to check in any given file more than 
+once in step (3), but there are good practical reasons to do so. The 
+repository may be treated as a kind of backup, so that it makes sense to do
+a checkin every night (say), no matter how broken the current state of the
+files may be. Or you might want to ``put everything away'' (``stash,'' in git
+jargon) so that you can work on a different branch. Or you might simply 
+want a record of the file before you make a change.
+
+For practical reasons, it's best not to create a new cut too often. These 
+cuts are the primary window onto the catena's history, and it's easier to
+navigate history if each cut was done for a specific reason. The individual
+file checkins (step (3), above) allow comments too, so you're not
+losing the ability to express historical details by limiting the
+number of cuts. 
+
+Typically, if you want the most recent consistent or working
+version, then you don't want a proto-cut. Instead, you want the cut
+immediately prior to the proto-cut. The proto-cut could be full of
+half-finished files from step (3). Of course, this all depends on the
+system of hygiene you use for checkins and cuts.
+
+\section{Names and Branches}
+
+Every catena has an overall name, like {\tt main} or {\tt haskell\_stuff},
+and every cut may have an optional symbolic name defined by the user, like 
+{\tt last\_before\_vacation} or {\tt version\_2}. These symbolic names
+for cuts are called {\it tags}. Tags may not start with a digit, and
+may not include spaces, colons, slashes or back-slashes.
+
+If a cut does not have a tag, then the cut can be identified by its ID
+number. These numbers are expressed in hexadecimal form and start with
+low numbers that grow over time as new cuts are created.\footnote{When
+  an argument to a command is allowed to be a tag or a hexadecimal ID,
+  then the tag lookup happens first. If one of your tags has a name
+  like {\tt abba}, which could be interpreted as a hexadecimal cut ID,
+  and you want to refer to the cut with ID number {\tt abba}, then
+  prefix the hexademical value with a {\tt 0} to make it unambiguous.}
+
+If a cut splits into branches, then one of these branches is the 
+{\it trunk.} Each branch is associated with an integer, 1, 2, 
+{\it etc.}, and the trunk is branch 1. Branches of branches also have
+relative trunks, so there is no  
+single trunk for a particular catena, although there is a {\it primary
+trunk}, which is defined as the ``trunk of the trunk of the trunk,'' {\it etc.}
+
+It may happen that you made a poor decision about which branch to
+treat as the trunk; e.g., it may turn out that what you thought was
+going to be an experimental version ends up being the production
+version. The {\tt make-trunk} command allows you to change the trunk
+designation after the fact.
+
+\section{Merging}
+
+A set of cuts in the same catena can be merged to form a new
+proto-cut. Any cuts fed into a merger will be made fixed cuts, if they
+aren't fixed already. 
+
+The presence of sub-catenas adds a few twists. If a cut is used as a
+sub-cut, then it can be merged if and only if it is a fixed cut.
+Without this requirement, when looking back at history it would be
+unclear exactly {\it what} was merged. For similar reasons, any set of
+cuts to be merged must have identical home paths.
+
+Furthermore, all cuts to be merged must have identical sub-cut
+hierarchies. For any depends-on sub-cuts, this means that the sub-cuts
+must be identical (have the same ID number). For contained sub-cuts,
+it means that the tree must have the same shape, and for each set of
+corresponding nodes of the tree, corresponding cuts must be from the
+same catena. It's fine if the files in these sub-cuts have changed,
+and you may add and delete files from the sub-cuts, but the
+contain/depends-on trees must look the same.
+
+Here's an example to illustrate why identical sub-cut hierarchies are
+required. Suppose that you want to merge $C_1$ and $C_2$, and that
+$C_1$ depends on $D_1$, and $C_2$ contains $E_1$ which also contains
+$D_2$, where $D_1\neq D_2$. How should $C_1$ and $C_2$ be merged?
+There's no single approach that works for every scenario. If you do
+need to merge cuts that have different sub-cut hierarchies, then make
+them consistent before merging. In any reasonable case, this
+will require only a few minor adjustments before performing the
+merger. 
+
+The crucial rule to remember is that the merger isn't complete until
+every file in every cut feeding into the merger has been {\it
+  reconciled.} When a merger is initiated, any file that differs from
+any of its ``merge-partners'' is marked as unreconciled. Merging is
+the process of working through the set of unreconciled files until
+they have all been reconciled. The final act of a merger is always
+to invoke {\tt merger-complete}.
+
+\section{File History and Shuffling}
+
+In addition to the historical record based on cuts and catenas, there
+is an independent file-oriented record of history. A {\it shuffle}
+allows file-level historical relationships to be noted. 
+
+When files are checked in, there's a relatively obvious way that a
+newly checked in file depends on a previous version. If a file is
+checked in at a particular cut path, then that file depends on the
+previous check-in at that cut path, whether the previous check-in was
+made to the same cut or a previous cut. In a similar way, a file
+depends on any versions of the file feeding into a merger. These
+relationships are noted automatically.\footnote{When a file is checked
+  in, the cut on which it was checked in is noted. If the file remains
+  unchanged over a series of cuts, then the file's history has no
+  record of the fact that the file is held by these intermediate
+  cuts. This remains true over a series of branches and mergers.}
+
+When refactoring, it's common to ``shuffle the guts'' of some
+files. Simple examples are taking a file and breaking it into two, or
+combining two files into one. More generally, you might start 
+with $N$ files, do a massive rearrangement, and end up with $M$ files,
+perhaps using entirely different names, and moving them to different
+directories. The {\tt shuffle} command allows you to make note of these
+relationships.
+
+The use of shuffle specifications is entirely optional, but it can be
+handy, bearing in mind that there's a gray area. Copying and pasting
+a few lines from file $A$ to file $B$ probably isn't important, but moving
+an entire function might be.
+
+\section{Commands}
+
+Nearly all commands work with the active respository, and most
+commands work with the cut at a catena's head. If a command takes
+{\it catena} as an argument, then {\it catena} should be the
+symbolic name for a catena, and the command works on the cut at
+the given catena's head. The cut at a catena's head is sometimes
+called the {\it active} cut or the {\it current} cut.
+\vskip 0.4cm
+
+% To turn off indentation of the first line of a paragraph. This is in
+% force until it is closed, several pages forward, at the end of the
+% list of commands.
+{\setlength{\parindent}{0in}
+
+% This is to create a paragraph with hangining indentation. All I want
+% is to bring in the left margin a bit. Note the use of % at the end
+% of each line. This helps it to be parsed correctly (although it
+% might not be necessary in this case). The \par is so that it starts
+% on a new line, even if there's now newline in the input.
+%
+% There's some weirdness going on. The hangin enviro does not have
+% vertical space at the end, and if I try to add it, then the space is
+% always at the top -- who knows why. But if I nest then, the space
+% goes where I want it. 
+\newenvironment{hangin}{%
+  \par%
+  \setlength{\leftskip 0.5cm}\setlength{\parindent 12pt}{%
+}{%
+  }%
+  \par%
+  }
+
+% So this does what I actually want.
+\newenvironment{hang}{%
+  \begin{hangin}%
+}{%
+  \end{hangin}\addvspace{5pt}%
+  }
+
+
+{\tt help}
+
+\begin{hang}
+Prints a list of commands with very brief help.
+\end{hang}
+
+{\tt init}
+\begin{hang}
+After setting up the \verb=igit_home= environment variable, call this
+to create the contents of the directory to be found at \verb=igit_home=.
+
+{\bf This is always the first thing you must do.}
+\end{hang}
+
+{\tt create} \itarg{dir\_name} \itarg{sym\_name}
+
+\begin{hang}
+Create a new empty repository in the current directory, and make it the
+active repository. The base path is set to \dotpath.
+  
+Both arguments are optional. By default, the directory will be called 
+{\tt .igit}, but you can make it anything you like with
+{\it dir\_name}. So that you don't accidentally try to check the
+repository into itself, it's probably best to start {\it dir\_name}
+with a period ({\tt.igit} instead of {\tt igit}). The {\tt ignore}
+file, found in \verb=igit_home=, is set up to ignore any file or 
+directory whose name starts with a period.
+  
+Every repository can have a symbolic name, which is optionally provided
+with {\it sym\_name}. Without a symbolic name, the name for a
+repository is the path to it. Using symbolic names allows you to refer to
+\verb=jim_repo= (say), instead of having to type
+\verb=long/path/to/stuff/from/jim=. Symbolic names may not start with a digit.
+\end{hang}
+
+{\tt add-repo} \itarg{dir\_path} \itarg{sym\_name}
+\begin{hang}
+Similar to {\tt create}, but it assumes that the repository already
+exists. The existing repository directory is added to {\tt .igithome}.
+  
+The {\it sym\_name} is optional, but {\it dir\_path} is
+required. The {\it dir\_path} can be specified in relative terms;
+the working directory does not need to contain the repository directory.
+   
+This command does not make the newly added repository the active repository.
+\end{hang}
+  
+{\tt delete-repo} \itarg{name}
+\begin{hang}
+Remove a repository from {\tt igit\_home}. The {\it name} can be a
+symbolic name, if one is defined, or a path to the repository
+directory. If {\it name} is given as a path, then it can be given
+in relative terms. 
+  
+As with {\tt add-repo}, this is merely editing {\tt igit\_home/list}.
+You could edit it directly (if you're careful) to accomplish the same thing.
+In particular, it does not delete the repository from the file system.
+\end{hang}
+
+{\tt rename-repo} \itarg{old\_name} \itarg{new\_name}
+\begin{hang}
+This is exactly the same as running {\tt delete-repo}, followed by
+{\tt add-repo}. The {\it old\_name} may be a symbolic name or a path. The
+{\it new\_name} is optional. If {\it new\_name} is omitted, then this
+simply forgets any symbolic name for the path (although the repository
+remains known to the system); otherwise, {\it new\_name} becomes the
+new symbolic name. 
+\end{hang}
+\pagebreak
+{\tt list-repos}
+\begin{hang}
+Lists all known repositories.
+\end{hang}
+
+{\tt use-repo} \itarg{name}
+\begin{hang}
+Make the given repository active. {\it name} may be a symbolic name
+or a path leading to the repository directory.
+\end{hang}
+
+{\tt new-catena} \itarg{name}
+\begin{hang}
+Define a new catena with the given name.
+\end{hang}
+
+{\tt list-catena}
+\begin{hang}
+Prints the names of all known catenas. See below for
+{\tt list-catena} {\it catena}.
+\end{hang}
+
+{\tt delete-catena} \itarg{name}
+\begin{hang}
+Be careful with this since everything about the catena will be gone. It all
+remains as orphans, but it would be hard to recover. Another reason to
+be careful with this is that a catena can only be deleted if no cut in
+the catena appears as a sub-catena elsewhere. Checking this requires
+visiting every cut of the catena, and that could take some time.
+\end{hang}
+
+{\tt set-base} \itarg{path}
+\begin{hang}
+The base path is used repository-wide (see page \pageref{section-paths}).
+If {\it path} is not \dotpath, then it will be converted to an absolute path. 
+\end{hang}
+
+{\tt get-base}
+\begin{hang}
+Reports the value set by {\tt set-base}.
+\end{hang}  
+
+{\tt set-home} \itarg{catena} \itarg{path}
+\begin{hang}
+Every cut of a catena has a home path (see page \pageref{section-paths}). 
+\end{hang}
+
+{\tt get-home} \itarg{catena}
+\begin{hang}
+Reports the value set by {\tt set-home}.
+\end{hang}
+  
+{\tt add-depends} \itarg{catena} \itarg{sub-catena}
+\begin{hang}
+Make the cut at {\it catena}'s head depend on the cut at
+{\it sub-catena}'s head. 
+  
+The system checks whether there are any files common to the two catenas 
+({\it i.e.}, they have the same path-instance), and this 
+command fails if the byte-instances are not identical.
+\end{hang}
+
+{\tt add-contains} \itarg{catena} \itarg{sub-catena}
+\begin{hang}
+Like {\tt add-depends}, but with a contains relationship.
+
+Once {\it sub-cantena} is part of {\it catena} (either depends on
+or contains), you can use {\tt add-depends} or {\tt add-contains} at
+any time to change the relationship.
+\end{hang}
+
+{\tt list-subs} \itarg{catena}
+\begin{hang}
+Show a tree of all sub-catenas of the given catena.
+\end{hang}
+
+{\tt add} \itarg{catena} \itarg{path} \itarg{optional\_comment}
+\begin{hang}
+Make the file at the given {\it path} part of the current cut of
+{\it catena} and check it in. The file must exist before this
+command is invoked. 
+  
+The {\it path} must express the location of the desired file in the
+usual way ({\it i.e.}, as a path from the current working
+directory). Igit will resolve {\it path} to a cut path 
+relative to {\tt base} and {\tt home}.
+  
+Consider an example to make this clear. Suppose that the {\it path}
+is given as {\tt initial/bit/more/bits/to/the\_file}.
+\begin{itemize}
+\setlength\itemsep{0pt}
+\item If {\tt base/home} is {\tt /from/root/then/initial/bit},
+  then the file will enter the cut under {\tt more/bits/to/the\_file}.
+  That is, the cut path will be {\tt more/bits/to}.
+\item If {\tt base/home} ends with {\tt something/else}, so that
+  there are no directories in common between the end of {\tt
+    base/home} and the beginning of {\it path}, then the file will
+  enter under {\tt initial/bit/more/bits/to/the\_file}. The entire
+  {\it path} becomes the cut path.
+\item If either base or home is \dotpath, then {\tt base/home} is
+  resolved in the obvious way to an absolute path, and the two
+    rules above are applied.
+\end{itemize}
+\end{hang}
+  	
+{\tt add-as} \itarg{catena} \itarg{path\_1} \itarg{path\_2}
+\begin{hang}
+Works like {\tt add} \itarg{catena} \itarg{path\_1}, except that the
+file is stored within the catena using the cut path
+{\it path\_2}. This side-steps any issues with the base and home
+paths.
+\end{hang}
+
+{\tt add-dir} \itarg{catena} \itarg{path} {\tt -f -e}
+\itarg{excluded\_paths}
+\begin{hang}
+Like {\tt add}, but {\it path} must be a directory, and everything
+in the directory is added, recursively. Be careful since this will add
+everything that's not explictly excluded by the {\tt ignore} file.
+  
+There are two optional switches, and if both switches are used, then
+{\tt -f} must come before {\tt -e}. The {\tt -f} switch (``files
+only'')  means not to recurse into any sub-directories of {\it path}.
+Use the {\tt -e} switch, with a list of paths to files and
+directories to exclude the indicated items. These excluded paths
+should be given relative to {\it path}; for example,
+
+{\tt add-dir} \itarg{catena} {\tt some/path -e dir/item.c}
+
+\noindent means to exclude the file found at {\tt some/path/dir/item.c}.
+
+There is no opportunity for a checkin comment since the number of
+files could be large.
+
+\end{hang}
+
+{\tt remove} \itarg{catena} \itarg{path}
+\begin{hang}
+Opposite of {\tt add}. The given {\it path} must be a cut path. All
+record of the file is deleted from the current cut. 
+Any previous check-ins made for the file on the current cut remain, although 
+they will only be accessible by walking the file
+history starting from an earlier cut.
+\end{hang}
+
+{\tt remove-dir} \itarg{catena} \itarg{path}
+\begin{hang}
+Like {\tt remove}, but recursive for an entire
+directory.
+\end{hang}
+
+{\tt remove-sub} \itarg{catena} \itarg{sub-catena}
+\begin{hang}
+Remove the dependence of {\it catena} on {\it sub-catena} for the
+current cut.
+\end{hang}
+
+{\tt rename} \itarg{catena\_1} \itarg{catena\_2}
+\begin{hang}
+To rename a catena. These names are purely symbolic, so this change 
+happens everywhere, including earlier cuts, depends-on relationships,
+{\it etc}.
+\end{hang}
+  
+{\tt rename} \itarg{catena} \itarg{path\_1} \itarg{path\_2} \itarg{comment}
+\begin{hang}
+Within the given {\it catena}, change a file location from
+{\it path\_1} to {\it path\_2}, providing an optional comment. Both of
+the path arguments must be cut paths.
+  
+This command makes internal changes to the repository, but it is the
+user's responsibility to rename the file on the hard drive. Simply
+checking out the file from {\it path\_2} (after invoking this command)
+would work, but any changes made to the file, as stored at {\it path\_1}
+on the hard drive would be lost if those changes have not been checked
+in before calling this command. 
+    
+This command exists so that the system can note the fact that a file 
+checked in from {\it path\_2} was obtained by editing the file that used to be
+stored at {\it path\_1}. If, instead, you use {\tt remove} on {\it
+  path\_1}, followed by {\tt add} on {\it path\_2}, then the record of the
+historical relationship between the two versions is lost. So this is
+like a tiny {\tt shuffle} (see below).
+\end{hang}
+
+{\tt checkin} \itarg{catena} \itarg{path} \itarg{optional\_comment}
+\begin{hang}
+Check in the version of the file at {\it path} to the current
+cut of {\it catena} (which must be a proto-cut). The {\it path} may be
+an explicit cut path, or it will be resolved to the correct cut
+path. This cut path must be known to the catena from an earlier 
+{\tt add}, {\tt add-dir} or {\tt rename}.  
+
+The {\it catena} may not be a sub-catena. If {\it path} belongs
+directly to catena, then it's clear what this will do. If {\it path}
+belongs to a sub-catena of {\it catena}, then the command will 
+check in on the sub-catena (or multiple sub-catenas if the path
+appears multiple times).
+  
+If the optional comment is omitted, then there is an interactive
+prompt. You can check in an identical version of the same file multiple times.
+Doing this may make sense if you want to add more check-in
+comments.
+\end{hang}
+  
+{\tt checkin-all} \itarg{catena} \itarg{optional\_comment}
+\begin{hang}
+As above, but this checks in every file tracked by {\it catena},
+including sub-catenas.
+  
+Paths are dealt with a little differently here. Whereas {\tt add} and
+{\tt checkin} first look on the file system to find the file in
+question, and make the path to the file conform to the existing 
+{\tt home/base}, this command works the other way. For each file, the 
+location to which that file would be written ({\tt base/home/cut\_path})
+is checked for a file, and that file is checked in. So {\tt base/home}
+needs to point to the location from which the files are to be checked in.  
+  
+There's no provision for comments as each file is checked in since
+there could be many files.
+Instead, there is one comment shared by the
+entire set. This comment is stored with the (proto) cut into which the
+files are checked in. So a series of calls to {\tt checkin-all}
+extends the comment to be longer and longer, and you can edit earlier
+comments due to {\tt checkin-all} up until the point where {\tt cut} is called.
+\end{hang}
+
+{\tt checkin-as} \itarg{catena} \itarg{path\_1} \itarg{path\_2} \itarg{date}
+\begin{hang}
+Treat the file at {\it path\_1} as though it were really at {\it path\_2},
+and the checkin occurred on the given date. If {\it path2} is not yet
+known to the catena, then it will be added. If {\it path\_2} is already
+known to the catena, then this action will be rejected if {\it date}
+is out of sequence. Time travel is OK, but not in a way that leads to
+paradoxes. 
+  
+This function exists for the situation in which you want to create
+an igit repository using a pre-existing set of files.
+\end{hang}
+\pagebreak
+{\tt checkout} \itarg{catena} \itarg{path}
+\begin{hang}
+Copies the file found at {\it path} to the file system.
+The {\it path} must be a cut path, and some care may be needed. If
+{\it catena} has several sub-catenas, then {\it path} could lead to
+different files in each sub-catena, in which case all of the files
+will be checked out. This would happen if two sub-catenas have a
+parallel directory structure and file names.
+
+{\it Warning}: This overwrites existing files with no
+warning.
+\end{hang}    
+
+{\tt checkout-to} \itarg{catena} \itarg{path\_1} \itarg{path\_2}
+\begin{hang}
+Like {\tt checkout}, but the file (or files) is (or are) copied to
+{\it path\_2}, which is not resolved in any way; it's either an absolute
+path or it's given relative to the current working
+directory -- and it must include the file name.
+\end{hang}
+
+{\tt checkout-all} \itarg{catena}
+\begin{hang}
+Copies every file from {\it catena} and its sub-catenas.
+\end{hang}
+ 
+{\tt checkout-all-to} \itarg{catena} \itarg{path}
+\begin{hang}
+Like {\tt checkout-all}, but it goes to {\it path}, which must be a
+directory. 
+\end{hang}
+
+{\tt cut} \itarg{catena} \itarg{optional\_comment}
+\begin{hang}
+Fix the state of the proto-cut at {\it catena}'s head, create a new
+proto-cut and move the head to the new proto-cut. The generates new
+cuts for any sub-catenas too, and moves their heads forward.
+  
+If the comment is not provided with the command, then it will be
+requested interactively.
+\end{hang}
+
+{\tt list-catena} \itarg{catena}
+\begin{hang}
+The argument is optional. Without any argument, this lists all known
+catenas (see above). If {\it catena} is specified, then it lists the
+files and any sub-catenas of the current cut of {\it catena}.
+\end{hang}
+
+{\tt branch} \itarg{catena} \itarg{n}
+
+{\tt bud} \itarg{catena} \itarg{n}
+\begin{hang}
+These two commands do the same thing, but in different scenarios. If
+head points to a proto-cut, use {\tt branch}, and if head points to a
+fixed cut, use {\tt bud}. Distinguishing these cases makes mistakes
+less likely.
+  
+The second argument, {\it n}, is optional. For {\tt branch}, the
+default value is 2, and the effect is to {\tt cut} the current
+proto-cut, then create {\it n} new proto cuts as descendants. For {\tt bud}, 
+the default value is 1. All of these new branches start off identical.
+
+For {\tt branch}, one of the branches starts off as the trunk, and
+head moves to a non-trunk branch. It moves to a non-trunk because,
+presumably, the {\tt branch} was performed because you want to try
+something experimental, and the right place for experiments is not on
+the trunk. For {\tt bud}, the original cut (where head points) is made
+the trunk, and the head is moved to one of the branches.
+  
+When {\it catena} contains a sub-catena, the sub-catena branches
+too (recursively).
+\end{hang}
+
+{\tt head-id} \itarg{catena}
+\begin{hang}
+Print the ID number of the current location of {\it catena}'s
+head. The value associated with a particular cut never changes.
+\end{hang}
+
+{\tt tag} \itarg{catena} \itarg{name} \itarg{location}
+\begin{hang}
+Associate {\it name} with a particular cut. The {\it location} is
+optional; if it is omitted, then {\it catena}'s head gets this
+tag. If {\it location} is given, then it should be a hexadecimal ID
+number.
+
+Each catena has its own namespace for these tags, so the same
+{\it name} can be used in different catenas. 
+\end{hang}
+  
+{\tt untag} \itarg{catena} \itarg{name}
+\begin{hang}
+Delete a tag. Opposite of {\tt tag}.
+\end{hang}
+
+{\tt list-tags} \itarg{catena}
+\begin{hang}
+Print all the tags defined with {\tt tag} (in no particular
+order). The ID number is given, then the tag.
+\end{hang}
+
+{\tt head-to} \itarg{catena} \itarg{location}
+\begin{hang}
+Move the head of {\it catena} to the given {\it location}, where 
+{\it location} is a hexadecimal ID number or symbolic tag. This does
+not move the head for any sub-catenas of {\it catena}.
+\end{hang}
+
+{\tt head-forward} \itarg{catena} \itarg{step}
+\begin{hang}
+Move {\it catena}'s head forward; how far forward depends on {\it step}.
+If {\it step} is omitted, then step forward to the next cut; if 
+{\it step} is an integer then step forward by that many cuts, but 
+stop if the next step requires choosing among different branches (and
+print the choices). If {\it step} is \squote{f}, then step forward to
+the next proto-cut, but stop if you hit a branch-point. If {\it step}
+is \squote{F}, then step to the next proto-cut, choosing the trunk at
+each branch. 
+
+For both {\tt head-forward} and {\tt head-back} (below), the head for any
+sub-catenas of {\it catena} is moved too.
+\end{hang}
+
+{\tt head-back} \itarg{catena} \itarg{step}
+\begin{hang}
+Like {\tt head-forward}, but stop when the next step requires
+choosing among merged cuts. For {\tt head-back}, {\it step} must be an
+integer and may not be \squote{f} or \squote{F}. There is no
+``backward-looking trunk,'' so there is no clear way to make a default
+choice among merged cuts.
+\end{hang}
+
+{\tt merge} \itarg{catena} \itarg{branch\_1} \itarg{branch\_2}
+... \itarg{branch\_n} 
+
+{\tt merge-to} \itarg{catena} \itarg{branch\_1} \itarg{branch\_2} ... \itarg{branch\_n}
+\begin{hang}
+The {\tt merge} command takes at least two {\it branch} arguments
+specifying which cuts are to be merged to form a new proto-cut. The
+{\it branch} values may be given as tags or as cut ID numbers. The
+initial location of {\it catena}'s head doesn't matter for {\tt merge},
+but the head will point to the merged cut after {\tt merge}. 
+  
+The {\tt merge-to} command merges the given {\it branch} values to
+{\it catena}'s head, which must be a proto-cut. So, you can use 
+{\tt merge} to bring together a set of cuts, then add more cuts to the merger
+with {\tt merge-to}. Each {\tt merge} generates a new proto-cut, while
+{\tt merge-to} adds to an existing proto-cut. One way to approach a
+big octopus merger is to {\tt merge} a few cuts, reconcile everything,
+add a few more cuts with {\tt merge-to}, reconcile the new
+additions, {\it etc}. 
+
+With each {\tt merge} or {\tt merge-to}, the set of newly added files
+is examined. If there are any new path-instances, then an arbitrary
+byte-instance of that path-instance is copied into the destination
+proto-cut, and the source for that byte-instance is marked as
+reconciled. Each of the byte-instances being merged will be compared
+to the byte-instances already in the proto-cut, and any new ones will
+be flagged as unreconciled.
+
+The commands described below help to reconcile the files. These
+commands are {\tt unreconciled}, {\tt reconcile}, {\tt 
+  force-reconcile}, {\tt get-versions} and {\tt
+  done-merge}. In particular,
+you'll always need to call {\tt merger-complete} as the final step.
+
+Certain commands can't be used on a cut until every file has been
+reconciled. The obvious one is {\tt cut}; others are {\tt set-home},
+{\tt add-depends}, {\tt add-contains}, {\tt remove-sub}, {\tt branch}
+and {\tt bud}. You should think hard before using certain other commands if
+there's a merger open, notably {\tt delete-catena}, {\tt remove}, 
+{\tt remove-dir} and {\tt rename}. In general, the best strategy is to
+do the absolute minimum until everything is reconciled, then
+immediately do a {\tt cut}.
+\end{hang}  
+
+{\tt unreconciled} \itarg{catena}
+\begin{hang}
+If {\it catena}'s head points to a cut undergoing a merger, then this lists
+any unreconciled items. The list takes the form {\tt ID:path}, where
+{\tt ID} is the ID number for cut containing the file, and {\tt path}
+is the cut path.
+\end{hang}
+
+{\tt reconcile} \itarg{catena} \itarg{path}
+\begin{hang}
+Attempt to automatically reconcile differences for the given cut path.
+If the optional {\it path} is omitted, then try to reconcile all
+items.
+\end{hang}
+  
+{\tt force-reconcile} \itarg{catena} \itarg{path} \itarg{id}
+\begin{hang}
+Mark the given cut path as reconciled, ignoring any apparent
+discrepencies. The {\it id} is a cut ID or symbolic tag, and if 
+{\it id} is omitted, then this marks all items at {\it path} as 
+reconciled. If both {\it path} and {\it id} are omitted, then the
+entire merger is considered to be reconciled.
+
+This is command should not be used often, but it may be handy
+if you know that a particular file is junk -- maybe it was an 
+experiment that didn't work out. 
+\end{hang}
+
+{\tt get-versions} \itarg{catena} \itarg{path}
+\begin{hang}
+Copy out all byte-instances associated with the given cut
+path. They'll appear as {\tt file\_name.X.suffix}, where {\tt X} is 
+the cut ID from which the byte-instance came. For comparison, this
+checks out the ``already reconciled'' version too. If {\it path} is
+omitted, then this will copy out all unreconciled files. 
+
+For example, if there are three versions of {\tt stuff.c}, then they
+might appear as {\tt stuff.189.c}, {\tt stuff.431.c} and {\tt stuff.11.c},
+plus {\tt stuff.c} for what has been reconciled so far. If several of
+the prior versions are identical, then only one of them will be copied
+out; e.g., if {\tt stuff.189.c} and {\tt stuff.431.c} are identical,
+then only one of them will appear.
+\end{hang}
+
+{\tt done-merge} \itarg{catena} \itarg{path}
+\begin{hang}
+After reconciling the files from {\tt get-versions}, call this to
+delete all of the copies created by {\tt get-versions} and mark all
+instances of that path as reconciled.
+
+Note that {\it path} is required, unlike for {\tt get-versions}. This
+prevents accidentally closing out a merger due to a typo.
+\end{hang}
+\pagebreak
+{\tt merger-complete} \itarg{catena}
+\begin{hang}
+Call this when every path has been reconciled. It will fail if they
+haven't actually been reconciled.
+\end{hang}
+
+{\tt shuffle} \itarg{catena} \itarg{path\_1} \itarg{path\_2} ... \itarg{path\_n}
+\begin{hang}
+{\it path\_1} must appear in the current cut, the other paths
+must appear in the unique previous cut, and they must all be given as cut
+paths. This command says that {\it path\_1} came from the other items
+(in addition to any other items that are already known).
+Use {\tt shuffle-merge} when the current cut
+is the result of a merger.
+\end{hang}
+
+{\tt shuffle-merge} \itarg{catena} \itarg{path\_1} \itarg{path\_2} ...
+\itarg{path\_n} 
+\begin{hang}
+Like {\tt shuffle}, but where {\it catena}'s head is a cut formed by a
+merger. In this case, there is no unique prior cut, and the paths need
+to include information about which of the merged branches is
+intended. Each {\it path} (other than {\it path\_1}) may start with the 
+cut ID or tag for a cut feeding into the merger, with a colon
+(\squote{:}) appearing before the cut path. If the cut ID or tag is
+omitted, then every instance of the file from all prior cuts is
+considered to be an antecedent of {\it path\_1}. 
+\end{hang}
+  
+{\tt shuffle-arbitrary} \itarg{catena} \itarg{path\_1} \itarg{path\_2}...
+\itarg{path\_n}
+\begin{hang}
+This takes the same arguments as {\tt shuffle-merge}, but a cut ID
+or tag is required for every path after {\it path\_1}. Also, {\tt shuffle-merge}
+requires that the cuts appearing in each {\it path} be part of a
+merger into the cut containing {\it path\_1}; {\tt shuffle-arbitrary}
+does not.
+\end{hang}
+
+{\tt make-trunk} \itarg{catena}
+\begin{hang}
+Move the head to a cut immediately after a branch, and call this to
+make the head location the trunk.
+\end{hang}
+
+{\tt seek-new} \itarg{catena}
+\begin{hang}
+Look at the ordinary file system under {\tt home/base} for 
+{\it catena}'s head and report any files that are not being tracked by
+the repository.
+\end{hang}
+
+
+% Close the change to \parindent
+}
+
+
+
+
+
+
+
+\end{document}
